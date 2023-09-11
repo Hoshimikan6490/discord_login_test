@@ -1,39 +1,55 @@
+const { request } = require("undici");
 const express = require("express");
-const fetch = (...args) =>
-  import("node-fetch").then(({ default: fetch }) => fetch(...args));
-const { URLSearchParams } = require("url");
+require("dotenv").config();
+
 const app = express();
 
-var config = {
-  clientId: "1150702670269653023",
-  clientSecret: "mKk2hnoi2klMJC5DqqzrPtwnn0YK_ovC",
-  redirectUri: "http://localhost:80/authorize",
-};
+let public_id = process.env.clientId;
+let private_id = process.env.clientSecret;
+let port = 8000;
 
-app.get("/", (request, response) => {
-  response.send(
-    'login with discord: <a href="https://discord.com/api/oauth2/authorize?client_id=1150702670269653023&redirect_uri=http%3A%2F%2Flocalhost%3A80%2Fauthorize&response_type=code&scope=identify">login</a>'
-  );
+app.get("/", async ({ query }, response) => {
+  const { code } = query;
+
+  if (code) {
+    try {
+      const tokenResponseData = await request(
+        "https://discord.com/api/oauth2/token",
+        {
+          method: "POST",
+          body: new URLSearchParams({
+            client_id: public_id,
+            client_secret: private_id,
+            code,
+            grant_type: "authorization_code",
+            redirect_uri: `http://localhost:${port}`,
+            scope: "identify",
+          }).toString(),
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+        }
+      );
+
+      const oauthData = await tokenResponseData.body.json();
+
+      const userResult = await request("https://discord.com/api/users/@me", {
+        headers: {
+          authorization: `${oauthData.token_type} ${oauthData.access_token}`,
+        },
+      });
+
+      console.log(await userResult.body.json());
+    } catch (error) {
+      // NOTE: An unauthorized token will not throw an error
+      // tokenResponseData.statusCode will be 401
+      console.error(error);
+    }
+  }
+
+  return response.sendFile("index.html", { root: "." });
 });
 
-app.get("/authorize", (request, response) => {
-  var code = request.query["code"];
-  var params = new URLSearchParams();
-  params.append("client_id", config["clientId"]);
-  params.append("client_secret", config["clientSecret"]);
-  params.append("grant_type", "authorization_code");
-  params.append("code", code);
-  params.append("redirect_uri", config["redirectUri"]);
-  fetch(`https://discord.com/api/oauth2/token`, {
-    method: "POST",
-    body: params,
-  })
-    .then((res) => res.json())
-    .then((json) => {
-      response.send("logged in");
-    });
-});
-
-app.listen(80, () => {
-  console.log("Listening on :80");
-});
+app.listen(port, () =>
+  console.log(`App listening at http://localhost:${port}`)
+);
